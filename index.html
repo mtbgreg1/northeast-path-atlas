@@ -174,6 +174,10 @@ a { color: var(--accent); }
 .sat-link { display: flex; align-items: center; gap: 5px; padding: 0 8px; height: 29px; color: var(--ink); text-decoration: none; font-family: var(--f-ui); font-weight: 600; font-size: 13px; }
 .sat-link:hover { background: var(--surface-2); }
 .basemap-toggle { display: flex; }
+.img-form { display: grid; gap: 6px; margin-top: 6px; }
+.img-form label { font-size: 12.5px; color: var(--muted); }
+.img-form input { width: 100%; box-sizing: border-box; border: 1px solid var(--rule); background: var(--surface-2); color: var(--ink); border-radius: 6px; padding: 6px 8px; font-family: var(--f-mono); font-size: 12.5px; }
+.img-form .acts { display: flex; gap: 6px; flex-wrap: wrap; }
 .maplibregl-ctrl-group .basemap-btn { width: auto; height: 29px; padding: 0 9px; font-family: var(--f-ui); font-weight: 600; font-size: 13px; color: var(--muted); }
 .maplibregl-ctrl-group .basemap-btn + .basemap-btn { border-top: 0; border-left: 1px solid var(--rule); }
 .maplibregl-ctrl-group .basemap-btn[aria-pressed="true"], .maplibregl-ctrl-group .basemap-btn[aria-pressed="true"]:hover { color: var(--accent-ink) !important; background-color: var(--accent) !important; }
@@ -223,6 +227,14 @@ a { color: var(--accent); }
       <details class="sec more" id="moreWrap"><summary class="sec-title">More layers</summary>
         <div class="sub-rows" id="more-rows"></div>
       </details>
+      <details class="sec foot about" id="imgWrap" hidden><summary>Satellite imagery source</summary>
+        <p class="hint" id="imgStatus"></p>
+        <form id="imgForm" class="img-form" autocomplete="off">
+          <label for="esriKey">Esri API key, saved only in this browser</label>
+          <input type="password" id="esriKey" spellcheck="false" placeholder="Paste key">
+          <div class="acts"><button type="submit" class="mini">Use Esri imagery</button><button type="button" class="mini" id="esriClear" hidden>Remove key</button></div>
+        </form>
+      </details>
       <details class="sec foot about" id="footWrap"><summary>About the data</summary><div id="foot"></div></details>
     </div>
 
@@ -266,6 +278,18 @@ const MI = 1.609344;
 const PUBLIC_BUILD = true;
 // Outside Claude's sandbox (GitHub Pages) the page may stream imagery tiles; inside it, it can't.
 const REMOTE_TILES = /(^|\.)github\.io$/.test(location.hostname);
+// Sharper Esri World Imagery when the viewer has saved their own Esri key in this browser; USGS otherwise.
+const ESRI_STORE = "npa-esri-key";
+let ESRI_KEY = ""; try { ESRI_KEY = localStorage.getItem(ESRI_STORE) || ""; } catch (e) {}
+let esriFailed = false;
+const USGS_IMAGERY = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}";
+function satSource() {
+  return ESRI_KEY && !esriFailed
+    ? { type: "raster", tileSize: 256, maxzoom: 19,
+        tiles: ["https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=" + encodeURIComponent(ESRI_KEY)],
+        attribution: "Powered by <a href='https://www.esri.com' target='_blank' rel='noopener'>Esri</a> | Imagery: Esri, Maxar, Earthstar Geographics, and the GIS User Community" }
+    : { type: "raster", tileSize: 256, maxzoom: 16, tiles: [USGS_IMAGERY], attribution: "Imagery: USGS The National Map" };
+}
 
 let store = {};
 try { store = JSON.parse(localStorage.getItem("npa-state-2") || "{}"); } catch (e) { store = {}; }
@@ -458,9 +482,7 @@ function buildStyle() {
       wland: { type: "geojson", data: WLAND || { type: "FeatureCollection", features: [] } },
       naplaces: { type: "geojson", data: NAPLACES || { type: "FeatureCollection", features: [] } },
       edge: { type: "geojson", data: EDGE || { type: "FeatureCollection", features: [] } },
-      ...(REMOTE_TILES ? { sat: { type: "raster", tileSize: 256, maxzoom: 16,
-        tiles: ["https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}"],
-        attribution: "Imagery: USGS The National Map" } } : {}),
+      ...(REMOTE_TILES ? { sat: satSource() } : {}),
     },
     layers: L,
   };
@@ -686,6 +708,49 @@ class SatControl {
   onRemove() { this._c.remove(); }
 }
 
+/* ---------- satellite imagery source (Pages build) ---------- */
+function imageryStatus() {
+  const el = document.getElementById("imgStatus"); if (!el) return;
+  el.textContent = ESRI_KEY && !esriFailed ? "Using Esri World Imagery (about 0.3 m per pixel in the US)."
+    : esriFailed ? "The saved Esri key didn't work, so the map is using USGS imagery (about 1 m per pixel)."
+    : "Using USGS imagery (about 1 m per pixel). Paste an Esri key for sharper imagery.";
+  document.getElementById("esriClear").hidden = !ESRI_KEY;
+}
+function swapImagery() {
+  if (!map || !map.getSource("sat")) return;
+  const vis = map.getLayoutProperty("sat", "visibility"), paint = { "raster-fade-duration": 150 };
+  const before = map.getStyle().layers[map.getStyle().layers.findIndex(l => l.id === "sat") + 1];
+  map.removeLayer("sat"); map.removeSource("sat");
+  map.addSource("sat", satSource());
+  map.addLayer({ id: "sat", type: "raster", source: "sat", layout: { visibility: vis || "none" }, paint }, before && before.id);
+  map.setMaxZoom(ESRI_KEY && !esriFailed ? 19 : 17);
+  imageryStatus();
+}
+function setupImagery() {
+  document.getElementById("imgWrap").hidden = false;
+  imageryStatus();
+  document.getElementById("imgForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const inp = document.getElementById("esriKey"), v = inp.value.trim();
+    if (!v) return;
+    ESRI_KEY = v; esriFailed = false; inp.value = "";
+    try { localStorage.setItem(ESRI_STORE, v); } catch (err) {}
+    swapImagery();
+  });
+  document.getElementById("esriClear").addEventListener("click", () => {
+    ESRI_KEY = ""; esriFailed = false;
+    try { localStorage.removeItem(ESRI_STORE); } catch (err) {}
+    swapImagery();
+  });
+  // repeated Esri tile failures (bad or expired key, outage): fall back to USGS for this visit
+  let errs = 0;
+  map.on("error", e => {
+    if (!ESRI_KEY || esriFailed || !e || e.sourceId !== "sat") return;
+    if (++errs < 6) return;
+    esriFailed = true; swapImagery();
+  });
+}
+
 class BasemapToggle {
   onAdd(m) {
     const c = document.createElement("div"); c.className = "maplibregl-ctrl maplibregl-ctrl-group basemap-toggle"; c.setAttribute("role", "group"); c.setAttribute("aria-label", "Base map");
@@ -713,7 +778,7 @@ async function boot() {
   document.getElementById("foot").innerHTML = STATS.footHTML || "";
   let view = null; try { view = JSON.parse(localStorage.getItem("npa-view") || "null"); } catch (e) {}
   const opts = {
-    container: "map", style: buildStyle(), maxBounds: [[-179, -5], [-20, 84]], minZoom: 2, maxZoom: 17,
+    container: "map", style: buildStyle(), maxBounds: [[-179, -5], [-20, 84]], minZoom: 2, maxZoom: REMOTE_TILES && ESRI_KEY ? 19 : 17,
     hash: false, attributionControl: { compact: true, customAttribution: PUBLIC_BUILD ? "Added trails: USGS National Digital Trails, USFS" : "Cross-check: TrailLink (Rails to Trails Conservancy)" },
     dragRotate: false, pitchWithRotate: false,
   };
@@ -727,6 +792,7 @@ async function boot() {
   map.addControl(new maplibregl.ScaleControl({ unit: "imperial", maxWidth: 110 }), "bottom-right");
   map.addControl(new maplibregl.GeolocateControl({ trackUserLocation: false }), "top-right");
   map.on("load", () => { applyFilters(); busy(0); });
+  if (REMOTE_TILES) setupImagery();
   map.on("idle", () => { if (pending <= 0) document.getElementById("loading").hidden = true; });
   map.on("moveend", () => { try { localStorage.setItem("npa-view", JSON.stringify({ c: map.getCenter().toArray(), z: map.getZoom() })); } catch (e) {} applyFilters(); });
   const clickable = ["bike-paved", "bike-gravel", "bike-natural", "bike-unknown", "bike-lane", "bike-carfree", "bike-added", "dirt-gravel", "dirt-dirt", "dirt-unknown", "routeroad", "unverified", "construction"];

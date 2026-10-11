@@ -25,11 +25,12 @@
   --m-road-major: #cdbfa9; --m-road: #d5d0c7; --m-road-minor: #e2ded6; --m-label: #36413b; --m-halo: #f2f3ef;
   --m-border: #a9aea6; --m-edge: #b2453a; --m-label-dim: #6b766f;
   --m-hs-dark: 0.30; --m-hs-light: 0.55;
-  --p-paved: #11803f; --p-gravel: #c27800; --p-natural: #8a5a2b; --p-unknown: #2f8b84;
-  --p-lane: #1d68cc; --p-carfree: #6a4bc0; --p-added: #2b3640; --p-halo: #ffffff;
-  --d-road: #b2306f; --d-track: #c86aa1;
-  --x-unverified: #73847a; --x-construction: #d2442a; --x-route: #3a63c4; --x-hl: #ffc21a;
-  --g-missing: #d2442a; --g-partial: #c27800; --g-filtered: #6a4bc0;
+  /* path classes: paved is the most chromatic slot; validated all-pairs (CVD dE >= 8.3, normal >= 15.7) on --m-land */
+  --p-paved: #0f8d01; --p-gravel: #ee9005; --p-natural: #76298c; --p-unknown: #1296ab;
+  --p-lane: #0057bf; --p-carfree: #b22656; --p-added: #2b3640; --p-halo: #ffffff; --p-label: #176710;
+  --d-road: #9b6ae3; --d-track: #af95df;
+  --x-unverified: #73847a; --x-construction: #d2442a; --x-route: #4a5560; --x-hl: #ffc21a;
+  --g-missing: #d2442a; --g-partial: #ee9005; --g-filtered: #6a4bc0;
   --icon-filter: none;
   --f-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
   --f-ui: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
@@ -43,11 +44,11 @@
   --m-road-major: #4a4a44; --m-road: #3a4045; --m-road-minor: #2c3337; --m-label: #c8d2cc; --m-halo: #1a2125;
   --m-border: #4f5a55; --m-edge: #ff8a73; --m-label-dim: #8e9a93;
   --m-hs-dark: 0.55; --m-hs-light: 0.10;
-  --p-paved: #43d07e; --p-gravel: #f2a627; --p-natural: #c99161; --p-unknown: #5cc8bd;
-  --p-lane: #62a6ff; --p-carfree: #a98fff; --p-added: #e9eef1; --p-halo: #10171a;
-  --d-road: #ff6fb3; --d-track: #d58bb6;
-  --x-unverified: #8d9d93; --x-construction: #ff7a5c; --x-route: #789dff; --x-hl: #ffd44d;
-  --g-missing: #ff7a5c; --g-partial: #f2a627; --g-filtered: #a98fff;
+  --p-paved: #50df5f; --p-gravel: #de7b05; --p-natural: #914ad0; --p-unknown: #64d2ec;
+  --p-lane: #4785ff; --p-carfree: #d13271; --p-added: #e9eef1; --p-halo: #10171a; --p-label: #50df5f;
+  --d-road: #be93f3; --d-track: #8475b0;
+  --x-unverified: #8d9d93; --x-construction: #f66c6d; --x-route: #c1ccd7; --x-hl: #ffd44d;
+  --g-missing: #f66c6d; --g-partial: #de7b05; --g-filtered: #a98fff;
   --icon-filter: invert(1) brightness(0.92);
   color-scheme: dark;
 } }
@@ -59,11 +60,11 @@
   --m-road-major: #4a4a44; --m-road: #3a4045; --m-road-minor: #2c3337; --m-label: #c8d2cc; --m-halo: #1a2125;
   --m-border: #4f5a55; --m-edge: #ff8a73; --m-label-dim: #8e9a93;
   --m-hs-dark: 0.55; --m-hs-light: 0.10;
-  --p-paved: #43d07e; --p-gravel: #f2a627; --p-natural: #c99161; --p-unknown: #5cc8bd;
-  --p-lane: #62a6ff; --p-carfree: #a98fff; --p-added: #e9eef1; --p-halo: #10171a;
-  --d-road: #ff6fb3; --d-track: #d58bb6;
-  --x-unverified: #8d9d93; --x-construction: #ff7a5c; --x-route: #789dff; --x-hl: #ffd44d;
-  --g-missing: #ff7a5c; --g-partial: #f2a627; --g-filtered: #a98fff;
+  --p-paved: #50df5f; --p-gravel: #de7b05; --p-natural: #914ad0; --p-unknown: #64d2ec;
+  --p-lane: #4785ff; --p-carfree: #d13271; --p-added: #e9eef1; --p-halo: #10171a; --p-label: #50df5f;
+  --d-road: #be93f3; --d-track: #8475b0;
+  --x-unverified: #8d9d93; --x-construction: #f66c6d; --x-route: #c1ccd7; --x-hl: #ffd44d;
+  --g-missing: #f66c6d; --g-partial: #de7b05; --g-filtered: #a98fff;
   --icon-filter: invert(1) brightness(0.92);
   color-scheme: dark;
 }
@@ -435,7 +436,7 @@ function buildStyle() {
   // labels
   L.push({ id: "bike-label", type: "symbol", source: "bike", "source-layer": "bike", minzoom: 11, filter: ["has", "name"],
     layout: { "symbol-placement": "line", "text-field": ["get", "name"], "text-font": ["Noto Sans Italic"], "text-size": 12, "symbol-spacing": 320, "text-max-angle": 30 },
-    paint: { "text-color": tok("--p-paved"), "text-halo-color": tok("--m-halo"), "text-halo-width": 1.6 } });
+    paint: { "text-color": tok("--p-label"), "text-halo-color": tok("--m-halo"), "text-halo-width": 1.6 } });
   L.push({ id: "road-label", type: "symbol", source: "base", "source-layer": "roads", minzoom: 13, filter: ["has", "name"],
     layout: { "symbol-placement": "line", "text-field": ["get", "name"], "text-font": ["Noto Sans Regular"], "text-size": 11, "symbol-spacing": 400 },
     paint: { "text-color": tok("--muted"), "text-halo-color": tok("--m-halo"), "text-halo-width": 1.4 } });

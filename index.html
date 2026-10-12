@@ -141,6 +141,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .tl-stat b { font-family: var(--f-mono); font-size: 18px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .tl-stat span { font-size: 12.5px; color: var(--muted); line-height: 1.15; }
 .tl-stat[aria-pressed="true"] { border-color: var(--accent); background: var(--surface-2); }
+.tl-stat[data-s="st"] { grid-column: 1 / -1; }
 .tl-list { display: grid; gap: 0; }
 .tl-item { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 8px 0; border-bottom: 1px solid var(--rule); align-items: start; }
 .tl-item .t { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
@@ -255,6 +256,7 @@ const BOUNDS = [-85.2, 36.3, -66.0, 48.2];
 const BIKE_CLASSES = [
   { c: "paved",   label: "Paved",                  key: "--p-paved" },
   { c: "gravel",  label: "Gravel / crushed stone", key: "--p-gravel" },
+  { c: "unpaved", label: "Unpaved, type not mapped", key: "--p-gravel", dash: [2.2, 1.1], tip: "OpenStreetMap says only “unpaved”: could be crushed stone, gravel or dirt" },
   { c: "natural", label: "Natural surface",        key: "--p-natural", tip: "Dirt or grass rail-trails and towpaths" },
   { c: "unknown", label: "Surface not mapped",     key: "--p-unknown" },
   { c: "lane",    label: "Separated bike lane",    key: "--p-lane", tip: "Bike lane with a curb, posts or barrier between it and traffic" },
@@ -270,7 +272,7 @@ const MORE = [
   { id: "hs",           label: "Terrain shading", def: false },
   { id: "park",         label: "Parks and protected land", def: true },
   { id: "routeroad",    label: "Bike routes on roads", key: "--x-route", dash: [3, 2], def: false, tip: "On-street sections of signed, numbered bike routes" },
-  { id: "unverified",   label: "Other trails", key: "--x-unverified", dash: [0.8, 1.6], def: false, tip: "Bike-legal trails with natural or unknown surface; may be singletrack" },
+  { id: "unverified",   label: "Other trails", key: "--x-unverified", dash: [0.8, 1.6], def: false, tip: "Trails kept off the main map: bike-legal paths we can't confirm are rideable, likely singletrack (dotted) and likely hiking paths. Click one to see why." },
   { id: "construction", label: "Under construction / planned", key: "--x-construction", dash: [1.6, 1.6], def: false },
 ];
 const CORR_STEPS = [0, 0.5, 1, 2, 5, 10, 25, 50, 100];   // miles
@@ -424,8 +426,11 @@ function buildStyle() {
   }
   L.push({ id: "routeroad", type: "line", source: "bike", "source-layer": "routeroad", layout: { visibility: "none", "line-join": "round" },
     paint: { "line-color": tok("--x-route"), "line-dasharray": [3, 2], "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.8, 10, 1.6, 14, 3] } });
-  L.push({ id: "unverified", type: "line", source: "bike", "source-layer": "unverified", layout: { visibility: "none" },
+  L.push({ id: "unverified", type: "line", source: "bike", "source-layer": "unverified", layout: { visibility: "none" }, filter: ["!=", ["get", "c"], "singletrack"],
     paint: { "line-color": tok("--x-unverified"), "line-dasharray": [0.8, 1.6], "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.8, 12, 1.8, 15, 3] } });
+  // likely singletrack (moved out of the bike layer by the singletrack filter): dotted
+  L.push({ id: "unverified-st", type: "line", source: "bike", "source-layer": "unverified", layout: { visibility: "none", "line-cap": "round" }, filter: ["==", ["get", "c"], "singletrack"],
+    paint: { "line-color": tok("--x-unverified"), "line-dasharray": [0.05, 2.1], "line-width": ["interpolate", ["linear"], ["zoom"], 7, 1, 12, 2.2, 15, 3.4] } });
   L.push({ id: "construction", type: "line", source: "bike", "source-layer": "construction", layout: { visibility: "none" },
     paint: { "line-color": tok("--x-construction"), "line-dasharray": [1.6, 1.6], "line-width": ["interpolate", ["linear"], ["zoom"], 5, 1, 10, 2, 14, 3.5] } });
   // bike network: halo, highlight underlay, classes
@@ -510,6 +515,7 @@ function applyFilters() {
   map.setLayoutProperty("hs", "visibility", state.more.hs ? "visible" : "none");
   map.setLayoutProperty("park", "visibility", state.more.park ? "visible" : "none");
   for (const id of ["routeroad", "unverified", "construction"]) map.setLayoutProperty(id, "visibility", state.more[id] ? "visible" : "none");
+  map.setLayoutProperty("unverified-st", "visibility", state.more.unverified ? "visible" : "none");
   map.setLayoutProperty("gaps", "visibility", state.gaps ? "visible" : "none");
   if (map.getLayer("sat")) map.setLayoutProperty("sat", "visibility", state.sat ? "visible" : "none");
   document.querySelectorAll(".basemap-btn").forEach(b => b.setAttribute("aria-pressed", String((b.dataset.mode === "sat") === !!state.sat)));
@@ -598,13 +604,15 @@ const HW = { cycleway: "bike path", path: "multi-use path", footway: "footpath, 
 function popupHTML(f) {
   const p = f.properties, lyr = f.sourceLayer;
   let kind, key, dash;
-  if (lyr === "bike") { const b = BIKE_CLASSES.find(x => x.c === p.c) || BIKE_CLASSES[3]; kind = b.label; key = b.key; dash = b.dash; }
+  if (lyr === "bike") { const b = BIKE_CLASSES.find(x => x.c === p.c) || BIKE_CLASSES.find(x => x.c === "unknown"); kind = b.label; key = b.key; dash = b.dash; }
   else if (lyr === "dirt") { const d = DIRT_CLASSES.find(x => x.c === p.c) || DIRT_CLASSES[2]; kind = d.label; key = d.key; dash = d.dash; }
-  else { const m = MORE.find(x => x.id === lyr); kind = m ? m.label : lyr; key = m && m.key; dash = m && m.dash; }
+  else { const m = MORE.find(x => x.id === lyr); kind = m ? m.label : lyr; key = m && m.key; dash = m && m.dash;
+    if (lyr === "unverified" && p.c === "singletrack") { kind = "Other trails · likely singletrack"; dash = [0.3, 1.4]; }
+    else if (lyr === "unverified" && p.note && /^Possibly a hiking trail/.test(p.note)) kind = "Other trails · possibly a hiking trail"; }
   const title = p.name || (p.rt ? p.rt.split("; ")[0] : "") || "Unnamed " + (lyr === "dirt" ? (p.k === "road" ? "road" : "track") : "path");
   const rows = [];
   if (p.rt) rows.push(["Signed route", esc(p.rt)]);
-  if (p.hw && HW[p.hw]) rows.push(["Type", HW[p.hw] + (p.rail ? ", former rail line" : "")]);
+  if (p.hw && HW[p.hw]) rows.push(["Type", (lyr === "unverified" && p.st ? "mapped as " + HW[p.hw].replace(/^(?=[a-z])/, (m) => /^[aeiou]/.test(HW[p.hw]) ? "an " : "a ") : HW[p.hw]) + (p.rail ? ", former rail line" : "")]);
   else if (p.rail) rows.push(["Type", "former rail line"]);
   if (p.sf) rows.push(["Surface", esc(p.sf.replace(/_/g, " "))]); else if (lyr === "bike" || lyr === "dirt") rows.push(["Surface", "not mapped"]);
   if (p.tt) rows.push(["Track grade", esc(p.tt.replace("grade", ""))]);
@@ -660,7 +668,8 @@ function panelPadding() {
 let CHECK = [], checkFilter = "missing";
 const ST_LABEL = { missing: "Not in OSM", partial: "Partly mapped", found: "On map", nearby: "On map",
   added: "Added", nobikes: "No bikes", footpath: "Footpath / dirt trail", other: "Other trails layer", dirtroad: "Dirt roads layer",
-  construction: "Construction", road: "Road only", private: "Private" };
+  construction: "Construction", road: "Road only", private: "Private", singletrack: "Singletrack filter" };
+const ST_REVIEW = r => r.status === "singletrack" || r.st_mi > 0;
 const GROUP = s => (s === "found" || s === "nearby" || s === "added") ? "found" : (s === "missing" || s === "partial") ? s : "leftoff";
 const PILL = s => ({ found: "found", missing: "missing", partial: "partial", leftoff: "filtered" })[GROUP(s)];
 function gapFeatures() {
@@ -668,13 +677,15 @@ function gapFeatures() {
     .filter(f => f.properties.s !== "found");
 }
 function renderCheck() {
-  const n = g => CHECK.filter(r => GROUP(r.status) === g).length;
-  document.getElementById("tlSummary").innerHTML = [["missing", "Not in OpenStreetMap"], ["partial", "Partly mapped"], ["leftoff", "Left off on purpose"], ["found", "On the map"]]
+  const inG = (r, g) => g === "st" ? ST_REVIEW(r) : GROUP(r.status) === g;
+  const n = g => CHECK.filter(r => inG(r, g)).length;
+  document.getElementById("tlSummary").innerHTML = [["missing", "Not in OpenStreetMap"], ["partial", "Partly mapped"], ["leftoff", "Left off on purpose"], ["found", "On the map"], ["st", "Touched by the singletrack filter"]]
     .map(([g, l]) => `<button class="tl-stat" data-s="${g}" aria-pressed="${checkFilter === g}"><b>${n(g)}</b><span>${l}</span></button>`).join("");
-  const list = CHECK.filter(r => GROUP(r.status) === checkFilter).sort((a, b) => b.tl_mi - a.tl_mi);
+  const list = CHECK.filter(r => inG(r, checkFilter)).sort((a, b) => checkFilter === "st" ? (b.st_mi || 0) - (a.st_mi || 0) : b.tl_mi - a.tl_mi);
   document.getElementById("tlList").innerHTML = list.map(r => {
     let meta = `TrailLink: ${r.tl_mi} mi`;
     if (r.osm_mi != null) meta += ` · matched on map: ${r.osm_mi} mi`;
+    if (r.st_mi) meta += ` · moved to Other trails: ${r.st_mi} mi`;
     if (r.surface) meta += ` · ${esc(r.surface)}`;
     if (r.note) meta += `<br>${esc(r.note)}`;
     if (r.near_names && r.near_names.length && r.status === "nearby") meta += `<br>Paths here are named: ${esc(r.near_names.join(", "))}`;
@@ -795,7 +806,7 @@ async function boot() {
   if (REMOTE_TILES) setupImagery();
   map.on("idle", () => { if (pending <= 0) document.getElementById("loading").hidden = true; });
   map.on("moveend", () => { try { localStorage.setItem("npa-view", JSON.stringify({ c: map.getCenter().toArray(), z: map.getZoom() })); } catch (e) {} applyFilters(); });
-  const clickable = ["bike-paved", "bike-gravel", "bike-natural", "bike-unknown", "bike-lane", "bike-carfree", "bike-added", "dirt-gravel", "dirt-dirt", "dirt-unknown", "routeroad", "unverified", "construction"];
+  const clickable = ["bike-paved", "bike-gravel", "bike-natural", "bike-unknown", "bike-lane", "bike-carfree", "bike-added", "dirt-gravel", "dirt-dirt", "dirt-unknown", "routeroad", "unverified", "unverified-st", "construction"];
   map.on("click", (e) => {
     const box = [[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]];
     const fs = map.queryRenderedFeatures(box, { layers: clickable.filter(l => map.getLayer(l) && map.getLayoutProperty(l, "visibility") !== "none") });
